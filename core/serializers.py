@@ -1,15 +1,20 @@
-from django.core.validators import RegexValidator
+from django.core.validators import RegexValidator, EmailValidator, MinValueValidator, MaxLengthValidator, \
+    MinLengthValidator
 from rest_framework import serializers
 from core.models import User, Token
 from rest_framework.fields import empty
 
 from django.core import exceptions
 import django.contrib.auth.password_validation as validators
+from core.validations import CoreValidation
 
 
 def validate_password_and_repeat_password(data):
     if data.get('password') != data.get('password_repeat'):
         raise serializers.ValidationError({"dismatch password": "password and password repeat are not match"})
+
+    if data.get('old_password') is not None and data.get('old_password') == data.get('password'):
+        raise serializers.ValidationError({"Error": "password password should not same as old password"})
 
     # get the password from the data
     password = data.get('password')
@@ -31,15 +36,17 @@ class UserSerializer(serializers.Serializer):
 
 
 class UserRegisterSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=255, required=True)
-    password = serializers.CharField(max_length=255, write_only=True, required=True, )
-    password_repeat = serializers.CharField(max_length=255, write_only=True, required=True, )
-    phone = serializers.CharField(max_length=12, required=True, validators=[
-        RegexValidator(
-            regex='^0[0-9]{2,}[0-9]{7,}$',
-            message='phone must be numeric with 11 digits',
-            code='invalid_phone'
-        ),
+    username = serializers.CharField(max_length=30, required=True,
+                                     validators=[MinLengthValidator(8), MaxLengthValidator(30),
+                                                 CoreValidation.username_regx_validator()])
+
+    password = serializers.CharField(max_length=255, write_only=True, required=True, validators=[MinLengthValidator(8)])
+    password_repeat = serializers.CharField(max_length=255, write_only=True, required=True,
+                                            validators=[MinLengthValidator(8)])
+
+    phone = serializers.CharField(max_length=11, required=True, validators=[
+        CoreValidation.phone_regx_validator(),
+        MinLengthValidator(11), MaxLengthValidator(11),
     ])
 
     class Meta:
@@ -54,14 +61,14 @@ class UserRegisterSerializer(serializers.Serializer):
         return phone
 
     def validate_username(self, username):
-        username = str(username)
-        if len(username) < 4:
-            raise serializers.ValidationError(
-                {'invalid username': "username is to small"})
-
-        if username.isnumeric():
-            raise serializers.ValidationError(
-                {'invalid username': "username can not be a number"})
+        # username = str(username)
+        # if len(username) < 4:
+        #     raise serializers.ValidationError(
+        #         {'invalid username': "username is to small"})
+        #
+        # if username.isnumeric():
+        #     raise serializers.ValidationError(
+        #         {'invalid username': "username can not be a number"})
 
         existing = User.objects.filter(username=username).first()
         if existing:
@@ -105,17 +112,19 @@ class UserLoginSerializer(serializers.ModelSerializer):
         fields = ['username', 'password']
 
 
-class UserSendOtpSerializer(serializers.Serializer):
-    phone = serializers.CharField(max_length=255, write_only=True)
+class SendOtpSerializer(serializers.Serializer):
+    phone = serializers.CharField(max_length=255, write_only=True,
+                                  validators=[MinLengthValidator(11), MaxLengthValidator(11),
+                                              CoreValidation.phone_regx_validator()])
 
 
-class UserOtpValidateSerializer(serializers.Serializer):
-    otp_code = serializers.CharField(max_length=255, write_only=True)
+class OtpValidateSerializer(serializers.Serializer):
+    otp_code = serializers.CharField(max_length=255, write_only=True, required=True)
 
 
 class UserChangePassSerializer(serializers.ModelSerializer):
     old_password = serializers.CharField(max_length=255, required=True, )
-    password = serializers.CharField(max_length=255, write_only=True, required=True)
+    password = serializers.CharField(max_length=255, write_only=True, required=True, )
     password_repeat = serializers.CharField(max_length=255, write_only=True, required=True)
 
     class Meta:
@@ -143,13 +152,10 @@ class KillTokensSerialiser(serializers.Serializer):
 
     def __init__(self, instance=None, data=empty, **kwargs):
         super().__init__(instance, data, **kwargs)
-        print(self.tokens())
-        print(kwargs.get('request'))
         self.fields['token_keys'] = serializers.MultipleChoiceField(choices=self.tokens())
 
     def tokens(self):
         user_id = self.context.get('user_id')
         request = self.context.get('request')
-        print({request})
         return [(row.key, str(row.created) + "-" + row.user_agent) for row in
                 Token.objects.filter(user_id=user_id).all()]

@@ -39,3 +39,9 @@ class RIGHTELService(SMSService):
     def send_message(self, message):
         print("RIGHTEL service")
         print(message)
+
+
+class Client:
+    @staticmethod
+    def get_user_agent(request):
+        return request.META.get('HTTP_USER_AGENT')
