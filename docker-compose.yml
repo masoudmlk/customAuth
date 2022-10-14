@@ -4,17 +4,20 @@ services:
     build: .
     container_name: "customauth_python"
 #    restart: always
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
     ports:
         - "8000:8000"
     volumes:
-        - .:/app
+        - .:/customAuth
     links:
         - db
     depends_on:
         - db
         - redis
     command: >
-      sh -c "python3 manage.py migrate &&
+      sh -c "
+             python3 manage.py migrate &&
              python3 manage.py wait_for_db &&
              python3 manage.py runserver 0.0.0.0:8000"
 

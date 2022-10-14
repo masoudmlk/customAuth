@@ -5,3 +5,7 @@ drf-nested-routers==0.93.4
 psycopg2-binary
 django_redis
 django-environ
+cryptography
+django-rest-knox
+django-extensions
+
