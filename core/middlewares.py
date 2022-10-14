@@ -1,10 +1,13 @@
 from django.shortcuts import redirect
 from django import http
 from django.urls import reverse
-from core.models import Token
+from core.models import AuthToken, TokenAuthentication
 from django.urls import resolve
 from core.utils import Client
 from core.views import UserAuthViewSet
+from knox.settings import CONSTANTS as KNOX_CONSTANTS
+from rest_framework.exceptions import APIException
+from rest_framework.authentication import get_authorization_header
 
 
 class CheckTokenMiddleware:
@@ -15,27 +18,32 @@ class CheckTokenMiddleware:
 
     def __init__(self, get_response):
         self.get_response = get_response
+    @classmethod
+    def _check_is_required_update_user_agent(cls, request):
+        try:
+            lstToken = get_authorization_header(request).split()
+            if len(lstToken) == 2:
+                auth_token = lstToken[1]
+                auth_token = auth_token.decode("utf-8")
+                sub_token_key = auth_token[:KNOX_CONSTANTS.TOKEN_KEY_LENGTH]
+                authTokenObj = AuthToken.objects.only('token_key', 'user_agent').filter(
+                    token_key=sub_token_key).first()
+                print(authTokenObj, sub_token_key)
+                user_agent, token_key = None, None
+                if authTokenObj is not None and isinstance(authTokenObj, AuthToken):
+                    user_agent, token_key = authTokenObj.user_agent, authTokenObj.token_key
+
+                if user_agent != Client.get_user_agent(request) and authTokenObj is not None and isinstance(authTokenObj, AuthToken):
+                    authTokenObj.user_agent = Client.get_user_agent(request)
+                    authTokenObj.save(update_fields=['user_agent'])
+        except Exception:
+            print(f"Error in {__file__}  {cls.__name__}")
+
+        print(123, request.user.is_authenticated)
+        if request.user.is_authenticated:
+            pass
 
     def __call__(self, request):
-        #
-        user = request.user
-        current_url = resolve(request.path_info).url_name
-
-        # url with allow any access by all clients
-        if current_url in CheckTokenMiddleware.PATH_ALLOW_ANY:
-            response = self.get_response(request)
-            return response
-
-        # logged user can access base of token and user agent that stored in the database
-        if request.user.is_authenticated:
-
-            userAgent = Client.get_user_agent(request)
-            token_exists = Token.objects.filter(user_id=user.pk, user_agent=userAgent).exists()
-
-            if token_exists:
-                response = self.get_response(request)
-                return response
-        """
-        if url need to permission and there are not related token for user in the database, the route redirect to default route      
-        """
-        return self.response_redirect_class(reverse(CheckTokenMiddleware.ROUTE_DEFAULT))
+        CheckTokenMiddleware._check_is_required_update_user_agent(request)
+        response = self.get_response(request)
+        return response

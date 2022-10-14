@@ -1,12 +1,14 @@
 from django.core.validators import RegexValidator, EmailValidator, MinValueValidator, MaxLengthValidator, \
     MinLengthValidator
 from rest_framework import serializers
-from core.models import User, Token
+from core.models import User
 from rest_framework.fields import empty
 
 from django.core import exceptions
 import django.contrib.auth.password_validation as validators
 from core.validations import CoreValidation
+
+from core.models import AuthToken
 
 
 def validate_password_and_repeat_password(data):
@@ -32,7 +34,8 @@ def validate_password_and_repeat_password(data):
 
 class UserSerializer(serializers.Serializer):
     class Meta:
-        fields = ['id', 'username', 'email', 'first_name', 'last_name']
+        model = User
+        fields = ['id', 'username', 'email']
 
 
 class UserRegisterSerializer(serializers.Serializer):
@@ -87,20 +90,18 @@ class UserRegisterSerializer(serializers.Serializer):
         return super().save(**kwargs)
 
 
-class TokenGeneralSerializer(serializers.ModelSerializer):
-    key = serializers.CharField(read_only=True)
-
-    class Meta:
-        model = Token
-        fields = ['key', 'user_agent', 'created']
+class TokenGeneralSerializer(serializers.Serializer):
+    token_key = serializers.CharField(max_length=255, read_only=True)
+    user_agent = serializers.CharField(max_length=255, read_only=True)
+    created = serializers.DateTimeField(read_only=True)
 
 
 class TokenSerializer(serializers.ModelSerializer):
-    key = serializers.CharField(read_only=True)
+    token_key = serializers.CharField(read_only=True)
 
     class Meta:
-        model = Token
-        fields = ['key']
+        model = AuthToken
+        fields = ['token_key']
 
 
 class UserLoginSerializer(serializers.ModelSerializer):
@@ -137,6 +138,10 @@ class UserChangePassSerializer(serializers.ModelSerializer):
 
 class UserForgetPassSerializer(serializers.Serializer):
     otp_code = serializers.CharField(max_length=255, required=True)
+    phone = serializers.CharField(max_length=11, required=True, validators=[
+        CoreValidation.phone_regx_validator(),
+        MinLengthValidator(11), MaxLengthValidator(11),
+    ])
     password = serializers.CharField(max_length=255, write_only=True, required=True)
     password_repeat = serializers.CharField(max_length=255, write_only=True, required=True)
 
@@ -157,5 +162,14 @@ class KillTokensSerialiser(serializers.Serializer):
     def tokens(self):
         user_id = self.context.get('user_id')
         request = self.context.get('request')
-        return [(row.key, str(row.created) + "-" + row.user_agent) for row in
-                Token.objects.filter(user_id=user_id).all()]
+        return [(row.token_key, str(row.created) + "-" + row.user_agent) for row in
+                AuthToken.objects.only('token_key', 'user_agent', 'created').filter(user_id=user_id).all()]
+
+
+class TokenUserSerializerSerializer(serializers.ModelSerializer):
+    token_key = serializers.CharField(read_only=True)
+    # user = UserSerializer(read_only=True)
+    class Meta:
+        model = AuthToken
+        # fields = ['token_key', 'user_id', 'user' , 'created']
+        fields = '__all__'
