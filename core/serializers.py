@@ -1,13 +1,12 @@
 from django.core.validators import RegexValidator, EmailValidator, MinValueValidator, MaxLengthValidator, \
     MinLengthValidator
-from rest_framework import serializers
-from core.models import User
-from rest_framework.fields import empty
-
 from django.core import exceptions
 import django.contrib.auth.password_validation as validators
-from core.validations import CoreValidation
 
+from rest_framework import serializers
+
+from core.models import User
+from core.validations import CoreValidation
 from core.models import AuthToken
 
 
@@ -153,17 +152,20 @@ class UserForgetPassSerializer(serializers.Serializer):
         return validate_password_and_repeat_password(data)
 
 
+# class KillTokensSerialiser(serializers.Serializer):
+#
+#     def __init__(self, instance=None, data=empty, **kwargs):
+#         super().__init__(instance, data, **kwargs)
+#         self.fields['token_keys'] = serializers.MultipleChoiceField(choices=self.tokens())
+#
+#     def tokens(self):
+#         user_id = self.context.get('user_id')
+#         request = self.context.get('request')
+#         return [(row.token_key, str(row.created) + "-" + row.user_agent) for row in
+#                 AuthToken.objects.only('token_key', 'user_agent', 'created').filter(user_id=user_id).all()]
+
 class KillTokensSerialiser(serializers.Serializer):
-
-    def __init__(self, instance=None, data=empty, **kwargs):
-        super().__init__(instance, data, **kwargs)
-        self.fields['token_keys'] = serializers.MultipleChoiceField(choices=self.tokens())
-
-    def tokens(self):
-        user_id = self.context.get('user_id')
-        request = self.context.get('request')
-        return [(row.token_key, str(row.created) + "-" + row.user_agent) for row in
-                AuthToken.objects.only('token_key', 'user_agent', 'created').filter(user_id=user_id).all()]
+    token_keys = serializers.ListField(allow_null=False, allow_empty=False, min_length=1)
 
 
 class TokenUserSerializerSerializer(serializers.ModelSerializer):

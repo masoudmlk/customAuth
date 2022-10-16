@@ -1,7 +1,5 @@
-from collections import defaultdict
-from importlib import import_module
-import inspect
-import sys
+
+from user_agents import parse
 
 
 class SMSService(object):
@@ -104,3 +102,14 @@ class Client:
     @staticmethod
     def get_authorization_header(request):
         return request.headers.get('Authorization')
+
+    @staticmethod
+    def valid_user_agent(request):
+        user_agent_str = Client.get_user_agent(request)
+        return bool(user_agent_str)
+        # if user_agent_str:
+        #     userAgent = parse(user_agent_str)
+        #     #return userAgent.is_pc or userAgent.is_mobile or userAgent.is_tablet
+        # return False
+
+

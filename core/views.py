@@ -1,28 +1,21 @@
-import uuid
-from django.contrib.auth import login as auth_login, logout as auth_logout
+from random import randint
 from django.core.cache import cache
-from django.http import HttpResponseRedirect
+from django.db import transaction
+from django.contrib.auth.signals import user_logged_in, user_logged_out
+from datetime import timedelta
+
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
-from rest_framework.serializers import Serializer
+
 from core.serializers import UserRegisterSerializer, UserSerializer, TokenSerializer, UserLoginSerializer, \
     SendOtpSerializer, OtpValidateSerializer, UserChangePassSerializer, \
     UserForgetPassSerializer, TokenGeneralSerializer, KillTokensSerialiser, TokenUserSerializerSerializer
-# from core.models import User, AuthToken as ExtraAuthToken, TokenAuthentication
-from core.utils import SMSService, Client, SMSServiceHandler
-import json
-from random import randint
-# from knox.models import AuthToken
-from core.models import TokenAuthentication, AuthToken, User
-from django.db import transaction
-from knox.settings import CONSTANTS as KNOX_CONSTANTS, knox_settings
-from datetime import timedelta
-from django.utils import timezone
-from django.contrib.auth.signals import user_logged_in, user_logged_out
-from django.urls import reverse
+from core.utils import Client, SMSServiceHandler
+from core.models import AuthToken, User
+
 
 class UserAuthViewSet(GenericViewSet):
     ACTIONS = {'register': 'register', 'login': 'login', 'logout': 'logout',
@@ -103,9 +96,9 @@ class UserAuthViewSet(GenericViewSet):
         username = serializer.validated_data.get('username')
         password = serializer.validated_data.get('password')
         # get user info and check conditions
-        user, isLogin = UserAuthViewSet.login_user(request, username=username, password=password)
+        user = UserAuthViewSet.get_user(username=username, password=password)
 
-        if isLogin and isinstance(user, User):
+        if isinstance(user, User):
             token, token_key = UserAuthViewSet._createToken(user, request)
             return Response({'token_key': token_key}, status=status.HTTP_200_OK)
         return Response({"Error": "there are not any user with this username and password"},
@@ -175,7 +168,7 @@ class UserAuthViewSet(GenericViewSet):
         sendOtpCode = str(cache.get(cachePhoneKey))
 
         if receivedOtpCode == sendOtpCode:
-            user, isLogin = UserAuthViewSet.login_user(request, phone=phone, is_verify_phone=1)
+            user = UserAuthViewSet.get_user(phone=phone, is_verify_phone=1)
             if user is not None and isinstance(user, User):
                 # change password
                 user.set_password(password)
@@ -195,42 +188,36 @@ class UserAuthViewSet(GenericViewSet):
 
     @action(methods=['GET'], detail=False, url_name='home')
     def home(self, request):
-        return Response(status=status.HTTP_200_OK)
+        return Response({'detail': 'home page'}, status=status.HTTP_200_OK)
+
 
     @staticmethod
-    def login_user(request, user=None, username=None, password=None, phone=None, is_verify_phone=None) -> tuple:
-        # login by user
-        if user is not None and isinstance(user, User):
-            # auth_login(request, user)
-            return user, True
-
-        # login by phone
+    def get_user(username=None, password=None, phone=None, is_verify_phone=None) -> tuple:
+        user = None
         if phone is not None:
             if is_verify_phone is not None:
                 user = User.objects.filter(phone=phone, is_verify_phone=is_verify_phone).first()
             else:
                 user = User.objects.filter(phone=phone).first()
 
-            if user is not None and isinstance(user, User):
-                # auth_login(request, user)
-                return user, True
-            return user, False
 
         # login by username and password
-        isLogin = False
         if username is not None and password is not None:
             user = User.objects.filter(username=username).first()
-            if user is not None and isinstance(user, User) and user.check_password(password):
-                isLogin = True
-                # auth_login(request, user)
 
-        return user, isLogin
+            if user is not None and isinstance(user, User) and user.check_password(password):
+                pass
+            else:
+                user = None
+
+        return user
 
     @staticmethod
     def _createToken(user: User, request) -> (AuthToken, str):
         if not isinstance(user, User):
             raise {"Error": "user instance is not valid"}
-        token, token_key = AuthToken.objects.create(user)
+
+        token, token_key = AuthToken.objects.create(user, timedelta(days=10))
         if isinstance(token, AuthToken):
             token.user_agent = Client.get_user_agent(request)
             # token.objects.update(user_agent=Client.get_user_agent(request))
@@ -358,8 +345,10 @@ class TokensViewSet(GenericViewSet):
         serializer = KillTokensSerialiser(data=request.data, context=context)
         serializer.is_valid(raise_exception=True)
         # delete selected tokens
-        AuthToken.objects.filter(token_key__in=serializer.validated_data.get('token_keys')).delete()
+        list_tokens = serializer.validated_data.get('token_keys')
+        AuthToken.objects.filter(user_id=request.user.pk).filter(token_key__in=list_tokens).delete()
         remindedTokens = AuthToken.objects.filter(user_id=request.user.pk)
 
-        return Response(TokenSerializer(remindedTokens).data, status=status.HTTP_200_OK)
+        return Response(TokenSerializer(remindedTokens, many=True).data, status=status.HTTP_200_OK)
+
 
