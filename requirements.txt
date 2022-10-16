@@ -8,4 +8,5 @@ django-environ
 cryptography
 django-rest-knox
 django-extensions
-
+requests
+user-agents
